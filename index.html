@@ -77,7 +77,7 @@
       <tbody id="resourceRows"></tbody>
     </table>
 
-<details id="lineItemsDetails" open>
+<details id="lineItemsDetails">
   <summary style="margin:18px 0 8px; cursor:pointer; font-weight:600;">
     Line Items <span class="muted" id="lineItemsHint"></span>
   </summary>
@@ -134,6 +134,8 @@
     grandTotal: document.getElementById("grandTotal"),
     resourceRows: document.getElementById("resourceRows"),
     lineRows: document.getElementById("lineRows"),
+    lineItemsDetails: document.getElementById("lineItemsDetails"),
+    lineItemsHint: document.getElementById("lineItemsHint"),
   };
 
   // Loaded tab data:
@@ -281,6 +283,7 @@
     els.results.style.display = "block";
     els.rangeText.textContent = `${loaded.sheetName} — Levels ${fromLevel} → ${toLevel} (current: ${current})`;
     els.rowsText.textContent = `${items.length} line item(s)`;
+    els.lineItemsHint.textContent = `(${items.length})`;
     els.grandTotal.textContent = formatNumber(grand);
 
     els.resourceRows.innerHTML = "";
