@@ -40,7 +40,7 @@
       background: radial-gradient(circle at top, #020617, #000);
       color:var(--text);
       margin:24px;
-      max-width:980px;
+      max-width:1040px;
     }
 
     /* Subtle CRT scanlines */
@@ -128,6 +128,7 @@
       background:var(--panel);
       color:var(--accent);
       cursor:pointer;
+      white-space:nowrap;
     }
     button:hover{
       background:rgba(34,197,94,.08);
@@ -180,6 +181,7 @@
     th, td{
       padding:10px;
       border-bottom:1px dashed rgba(34,197,94,.22);
+      vertical-align:top;
     }
     th{
       color:var(--muted);
@@ -187,14 +189,27 @@
     }
     .right{ text-align:right; }
 
-    .total{
-      font-size:18px;
-      font-weight:600;
-      color:var(--accent);
+    .totalsGrid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:10px;
+      margin-top:10px;
+    }
+    .totalLine{
       display:flex;
       justify-content:space-between;
-      margin-top:10px;
-      text-shadow:0 0 10px rgba(34,197,94,.35);
+      gap:12px;
+      padding:10px;
+      border:1px solid rgba(34,197,94,.18);
+      border-radius:12px;
+      background:rgba(0,0,0,.35);
+    }
+    .totalLine .label{ color:var(--muted); font-size:12px; }
+    .totalLine .value{
+      color:var(--accent);
+      font-size:16px;
+      font-weight:600;
+      text-shadow:0 0 10px rgba(34,197,94,.25);
     }
 
     details summary{
@@ -227,7 +242,7 @@
     /* Summary output box */
     .output{
       width:100%;
-      min-height:120px;
+      min-height:140px;
       margin-top:10px;
       padding:10px;
       border-radius:12px;
@@ -256,6 +271,26 @@
       font-size:11px;
       background:rgba(34,197,94,.06);
     }
+
+    .marketRow{
+      display:grid;
+      gap:12px;
+      grid-template-columns: 1fr 1fr 1fr;
+      margin-top:12px;
+      align-items:end;
+    }
+
+    .checkline{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      padding:10px;
+      border:1px solid rgba(34,197,94,.18);
+      border-radius:12px;
+      background:rgba(0,0,0,.35);
+      height: 42px;
+    }
+    .checkline input{ width:auto; }
   </style>
 </head>
 
@@ -279,17 +314,46 @@
       </div>
     </div>
 
-    <div style="display:flex; gap:10px; margin-top:12px; align-items:center;">
+    <div style="display:flex; gap:10px; margin-top:12px; align-items:center; flex-wrap:wrap;">
       <button class="btn" id="calcBtn">Calculate</button>
       <button id="reloadBtn">Reload Tab Data</button>
       <span class="muted" id="status"></span>
+    </div>
+
+    <!-- Market pricing controls -->
+    <div class="marketRow">
+      <div class="checkline">
+        <input type="checkbox" id="useMarket" />
+        <span class="muted">Include Market Value (Coin)</span>
+      </div>
+
+      <div>
+        <label for="marketSource">Market Source</label>
+        <select id="marketSource">
+          <option value="official">Official (marketplace.json)</option>
+          <option value="github_marketapi">GitHub MWIApi (marketapi.json)</option>
+          <option value="github_median">GitHub MWIApi (medianmarket.json)</option>
+        </select>
+      </div>
+
+      <div>
+        <label for="priceType">Price Type</label>
+        <select id="priceType">
+          <option value="ask">Ask</option>
+          <option value="bid">Bid</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="muted" style="margin-top:10px;">
+      Tip: if Official is blocked by CORS on GitHub Pages, pick a GitHub MWIApi source instead. :contentReference[oaicite:2]{index=2}
     </div>
 
     <div id="err" class="error" style="display:none;"></div>
   </div>
 
   <div class="card" id="results" style="display:none;">
-    <div style="display:flex; justify-content:space-between; align-items:center;">
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
       <div>
         <div class="muted">Selected Range</div>
         <div id="rangeText" style="font-weight:600;"></div>
@@ -297,9 +361,15 @@
       <div class="pill" id="rowsText"></div>
     </div>
 
-    <div class="total">
-      <div>Grand Total (numeric sums)</div>
-      <div id="grandTotal">—</div>
+    <div class="totalsGrid">
+      <div class="totalLine">
+        <div class="label">Grand Total (raw sums)</div>
+        <div class="value" id="grandTotal">—</div>
+      </div>
+      <div class="totalLine">
+        <div class="label">Grand Market Value (Coin)</div>
+        <div class="value" id="grandValue">—</div>
+      </div>
     </div>
 
     <div class="promptTitle">Terminal Output</div>
@@ -320,6 +390,7 @@
         <tr>
           <th>Resource</th>
           <th class="right">Total Amount</th>
+          <th class="right">Value (Coin)</th>
         </tr>
       </thead>
       <tbody id="resourceRows"></tbody>
@@ -337,6 +408,7 @@
             <th>Level</th>
             <th>Resource</th>
             <th class="right">Amount</th>
+            <th class="right">Value (Coin)</th>
           </tr>
         </thead>
         <tbody id="lineRows"></tbody>
@@ -345,6 +417,8 @@
   </div>
 
 <script>
+  // ======= CONFIG =======
+
   // Your sheet ID (from your link)
   const SHEET_ID = "16Dcwa4OSYKn7emoca1aqoS-RGo_SeJEPHS2_yfC9iFs";
 
@@ -369,6 +443,17 @@
     "Combat - Mystical Study",
   ];
 
+  // Market sources:
+  // Official marketplace.json is referenced by community tools and patch notes. :contentReference[oaicite:3]{index=3}
+  // MWIApi repo documents marketapi.json and medianmarket.json. :contentReference[oaicite:4]{index=4}
+  const MARKET_URLS = {
+    official: "https://www.milkywayidle.com/game_data/marketplace.json",
+    github_marketapi: "https://raw.githubusercontent.com/holychikenz/MWIApi/main/marketapi.json",
+    github_median: "https://raw.githubusercontent.com/holychikenz/MWIApi/main/medianmarket.json",
+  };
+
+  // ======= ELEMENTS =======
+
   const els = {
     sheet: document.getElementById("sheet"),
     currentLevel: document.getElementById("currentLevel"),
@@ -377,21 +462,37 @@
     reloadBtn: document.getElementById("reloadBtn"),
     status: document.getElementById("status"),
     err: document.getElementById("err"),
+
+    useMarket: document.getElementById("useMarket"),
+    marketSource: document.getElementById("marketSource"),
+    priceType: document.getElementById("priceType"),
+
     results: document.getElementById("results"),
     rangeText: document.getElementById("rangeText"),
     rowsText: document.getElementById("rowsText"),
     grandTotal: document.getElementById("grandTotal"),
+    grandValue: document.getElementById("grandValue"),
     resourceRows: document.getElementById("resourceRows"),
     lineRows: document.getElementById("lineRows"),
+
     copyBtn: document.getElementById("copyBtn"),
     summaryOut: document.getElementById("summaryOut"),
+
     lineItemsDetails: document.getElementById("lineItemsDetails"),
     lineItemsHint: document.getElementById("lineItemsHint"),
   };
 
-  // Loaded tab data:
+  // ======= STATE =======
+
+  // Loaded sheet tab data:
   // levels[levelNumber] = [{ amount:number, resource:string }, ...]
   let loaded = { sheetName: null, maxLevel: 0, levels: {} };
+
+  // Cached market json in memory
+  let marketData = null;
+  let marketSourceLoaded = null;
+
+  // ======= HELPERS =======
 
   function setStatus(msg) { els.status.textContent = msg || ""; }
   function showError(msg) { els.err.style.display = "block"; els.err.textContent = msg; }
@@ -401,30 +502,8 @@
     return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
   }
 
-  // Fetch tab via Google Visualization (no API key required for public/viewable sheets)
-  function gvizUrl(sheetName) {
-    const base = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq`;
-    const params = new URLSearchParams({
-      tqx: "out:json",
-      sheet: sheetName
-    });
-    return `${base}?${params.toString()}`;
-  }
-
-  function parseGvizJson(text) {
-    // Response looks like: google.visualization.Query.setResponse({...});
-    const start = text.indexOf("{");
-    const end = text.lastIndexOf("}");
-    if (start === -1 || end === -1) throw new Error("Unexpected gviz response.");
-    return JSON.parse(text.slice(start, end + 1));
-  }
-
-  function toCellString(cell) {
-    // cell can be null or {v:..., f:...}
-    if (!cell) return "";
-    if (cell.f != null) return String(cell.f);
-    if (cell.v != null) return String(cell.v);
-    return "";
+  function formatCoin(n) {
+    return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
   }
 
   function resourceClass(resourceName) {
@@ -439,7 +518,90 @@
     return "res-generic";
   }
 
-  function buildSummaryText({ sheetName, fromLevel, toLevel, current, items, byResource, grand }) {
+  // Google Visualization fetch (no API key for public/viewable sheets)
+  function gvizUrl(sheetName) {
+    const base = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq`;
+    const params = new URLSearchParams({ tqx: "out:json", sheet: sheetName });
+    return `${base}?${params.toString()}`;
+  }
+
+  function parseGvizJson(text) {
+    // Response: google.visualization.Query.setResponse({...});
+    const start = text.indexOf("{");
+    const end = text.lastIndexOf("}");
+    if (start === -1 || end === -1) throw new Error("Unexpected gviz response.");
+    return JSON.parse(text.slice(start, end + 1));
+  }
+
+  function toCellString(cell) {
+    if (!cell) return "";
+    if (cell.f != null) return String(cell.f);
+    if (cell.v != null) return String(cell.v);
+    return "";
+  }
+
+  // Parse "500,000 Coin" / "-9 Cheese Hatchet" / "-"
+  function parseCellToItem(cellText) {
+    const s = String(cellText || "").trim();
+    if (!s || s === "-" || s === "—") return null;
+
+    const m = s.match(/^(-?\d[\d,]*)(?:\s+(.+))?$/);
+    if (!m) return null;
+
+    const amount = Number(m[1].replace(/,/g, ""));
+    if (!Number.isFinite(amount)) return null;
+
+    const resource = (m[2] || "").trim();
+    if (!resource) return null;
+
+    return { amount, resource };
+  }
+
+  function marketCacheKey(source) {
+    return `mwi_market_${source}_v1`;
+  }
+
+  async function fetchJson(url) {
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  }
+
+  async function loadMarketData(source) {
+    // 10 minute cache
+    const key = marketCacheKey(source);
+    const cached = localStorage.getItem(key);
+    if (cached) {
+      try {
+        const obj = JSON.parse(cached);
+        if (obj?.ts && (Date.now() - obj.ts) < 10 * 60 * 1000 && obj.data) {
+          return obj.data;
+        }
+      } catch {}
+    }
+
+    const url = MARKET_URLS[source];
+    const data = await fetchJson(url);
+
+    // We expect a .market object from these common sources. :contentReference[oaicite:5]{index=5}
+    if (!data || typeof data !== "object") throw new Error("Bad JSON");
+    if (!data.market || typeof data.market !== "object") throw new Error("Missing `market` object");
+
+    localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data }));
+    return data;
+  }
+
+  function getItemPriceCoin(itemName, priceType, data) {
+    // returns coin price per unit, or null if missing/invalid
+    const entry = data?.market?.[itemName];
+    const p = entry?.[priceType];
+    if (p === undefined || p === null) return null;
+    if (p === -1) return null; // some feeds use -1 for "no price"
+    if (!Number.isFinite(p)) return null;
+    return p;
+  }
+
+  function buildSummaryText({ sheetName, fromLevel, toLevel, current, items, byResource, grand, includeMarket, priceType, marketSource, byResourceValue, grandValue }) {
     const lines = [];
     lines.push(`> ${sheetName}`);
     lines.push(`> Range: L${fromLevel} -> L${toLevel} (current: L${current})`);
@@ -449,17 +611,32 @@
 
     const sorted = [...byResource.entries()].sort((a,b) => b[1]-a[1]);
     for (const [res, total] of sorted) {
-      lines.push(`  - ${res}: ${formatNumber(total)}`);
+      const maybeVal = includeMarket ? byResourceValue.get(res) : null;
+      if (includeMarket) {
+        lines.push(`  - ${res}: ${formatNumber(total)}  |  value: ${maybeVal != null ? formatCoin(maybeVal) : "-"}`);
+      } else {
+        lines.push(`  - ${res}: ${formatNumber(total)}`);
+      }
     }
 
     lines.push(`> ------------------------------`);
     lines.push(`> Grand Total: ${formatNumber(grand)}`);
+
+    if (includeMarket) {
+      lines.push(`> Market Value (${priceType}, ${marketSource}): ${grandValue != null ? formatCoin(grandValue) : "-"}`);
+    }
+
     lines.push(`>`);
     lines.push(`> Line Items:`);
 
     for (const it of items) {
       const res = String(it.resource);
-      lines.push(`  L${it.level}  ${res.padEnd(22, " ")}  ${formatNumber(it.amount)}`);
+      const val = includeMarket ? it.valueCoin : null;
+      if (includeMarket) {
+        lines.push(`  L${it.level}  ${res.padEnd(22, " ")}  ${formatNumber(it.amount)}  |  ${val != null ? formatCoin(val) : "-"}`);
+      } else {
+        lines.push(`  L${it.level}  ${res.padEnd(22, " ")}  ${formatNumber(it.amount)}`);
+      }
     }
 
     return lines.join("\n");
@@ -469,44 +646,28 @@
     await navigator.clipboard.writeText(text);
   }
 
+  // ======= DATA LOADERS =======
+
   async function loadTab(sheetName) {
     clearError();
     setStatus(`Loading "${sheetName}"…`);
 
     const res = await fetch(gvizUrl(sheetName), { cache: "no-store" });
     if (!res.ok) throw new Error(`Failed to fetch "${sheetName}". (Is the tab name correct?)`);
+
     const raw = await res.text();
     const json = parseGvizJson(raw);
 
     const table = json.table;
     if (!table || !table.cols || !table.rows) throw new Error(`No table data returned for "${sheetName}".`);
 
-    // ✅ Each column = one level (Level 1..Level 8)
+    // Each column = one level (Level 1..Level 8)
     const colCount = table.cols.length;
     const maxLevel = colCount;
 
     const levels = {};
     for (let lvl = 1; lvl <= maxLevel; lvl++) levels[lvl] = [];
 
-    // Helper: parse a cell like "500,000 Coin" or "-9 Cheese Hatchet" or "-"
-    function parseCellToItem(cellText) {
-      const s = String(cellText || "").trim();
-      if (!s || s === "-" || s === "—") return null;
-
-      // match leading number (supports commas + negatives)
-      const m = s.match(/^(-?\d[\d,]*)(?:\s+(.+))?$/);
-      if (!m) return null;
-
-      const amount = Number(m[1].replace(/,/g, ""));
-      if (!Number.isFinite(amount)) return null;
-
-      const resource = (m[2] || "").trim();
-      if (!resource) return null;
-
-      return { amount, resource };
-    }
-
-    // Each row has N cells (one per level column)
     for (const r of table.rows) {
       const c = r.c || [];
       for (let lvl = 1; lvl <= maxLevel; lvl++) {
@@ -527,8 +688,37 @@
     if (cur > maxLevel) els.currentLevel.value = String(maxLevel);
   }
 
-  function calculate() {
+  async function ensureMarketLoaded(preferredSource) {
+    // If already loaded for this source, nothing to do
+    if (marketData && marketSourceLoaded === preferredSource) return;
+
+    // Try preferred, then fallback order
+    const attempts = [
+      preferredSource,
+      preferredSource === "official" ? "github_marketapi" : "official",
+      "github_marketapi",
+      "github_median"
+    ].filter((v, i, arr) => arr.indexOf(v) === i);
+
+    let lastErr = null;
+    for (const src of attempts) {
+      try {
+        const data = await loadMarketData(src);
+        marketData = data;
+        marketSourceLoaded = src;
+        return;
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    throw new Error(`Market load failed (${lastErr?.message || lastErr || "unknown"})`);
+  }
+
+  // ======= CALCULATION / RENDER =======
+
+  async function calculate() {
     clearError();
+    setStatus("");
 
     if (!loaded.sheetName) return showError("Load a tab first.");
 
@@ -546,46 +736,91 @@
     const items = [];
     for (let lvl = fromLevel; lvl <= toLevel; lvl++) {
       for (const it of (loaded.levels[lvl] || [])) {
-        items.push({ level: lvl, amount: it.amount, resource: it.resource });
+        items.push({ level: lvl, amount: it.amount, resource: it.resource, valueCoin: null });
       }
     }
 
     if (items.length === 0) return showError(`No items found for levels ${fromLevel}-${toLevel}.`);
 
-    // Breakdown
+    // Breakdown (amounts)
     const byResource = new Map();
     let grand = 0;
-
     for (const it of items) {
       grand += it.amount;
       byResource.set(it.resource, (byResource.get(it.resource) || 0) + it.amount);
     }
 
-    // Render
+    // Optional market value (coin)
+    const includeMarket = !!els.useMarket.checked;
+    const preferredSource = els.marketSource.value;
+    const priceType = els.priceType.value;
+
+    const byResourceValue = new Map();
+    let grandValue = null;
+
+    if (includeMarket) {
+      try {
+        setStatus("Loading market prices…");
+        await ensureMarketLoaded(preferredSource);
+        setStatus(`Market loaded (${marketSourceLoaded}, ${priceType}).`);
+
+        let gv = 0;
+
+        for (const it of items) {
+          const unit = getItemPriceCoin(it.resource, priceType, marketData);
+          if (unit == null) {
+            it.valueCoin = null;
+            continue;
+          }
+          const v = it.amount * unit;
+          it.valueCoin = v;
+
+          gv += v;
+          byResourceValue.set(it.resource, (byResourceValue.get(it.resource) || 0) + v);
+        }
+
+        grandValue = gv;
+
+      } catch (e) {
+        // Don’t break calculator, just show '-' values
+        setStatus(`Market pricing unavailable: ${e.message || e}`);
+        grandValue = null;
+      }
+    } else {
+      grandValue = null;
+    }
+
+    // Render header
     els.results.style.display = "block";
     els.rangeText.textContent = `${loaded.sheetName} — Levels ${fromLevel} → ${toLevel} (current: ${current})`;
     els.rowsText.textContent = `${items.length} line item(s)`;
     els.grandTotal.textContent = formatNumber(grand);
+    els.grandValue.textContent = includeMarket ? (grandValue != null ? formatCoin(grandValue) : "-") : "-";
     els.lineItemsHint.textContent = `(${items.length})`;
 
-    // Breakdown table (colored resources)
+    // Breakdown table
     els.resourceRows.innerHTML = "";
     [...byResource.entries()]
       .sort((a,b) => b[1] - a[1])
       .forEach(([resource, total]) => {
+        const val = includeMarket ? byResourceValue.get(resource) : null;
         const tr = document.createElement("tr");
-        tr.innerHTML = `<td><span class="${resourceClass(resource)}">${resource}</span></td><td class="right">${formatNumber(total)}</td>`;
+        tr.innerHTML =
+          `<td><span class="${resourceClass(resource)}">${resource}</span></td>
+           <td class="right">${formatNumber(total)}</td>
+           <td class="right">${includeMarket ? (val != null ? formatCoin(val) : "-") : "-"}</td>`;
         els.resourceRows.appendChild(tr);
       });
 
-    // Line items (colored resources)
+    // Line items
     els.lineRows.innerHTML = "";
     items.forEach((it) => {
       const tr = document.createElement("tr");
       tr.innerHTML =
         `<td>${it.level}</td>
          <td><span class="${resourceClass(it.resource)}">${it.resource}</span></td>
-         <td class="right">${formatNumber(it.amount)}</td>`;
+         <td class="right">${formatNumber(it.amount)}</td>
+         <td class="right">${includeMarket ? (it.valueCoin != null ? formatCoin(it.valueCoin) : "-") : "-"}</td>`;
       els.lineRows.appendChild(tr);
     });
 
@@ -597,9 +832,16 @@
       current,
       items,
       byResource,
-      grand
+      grand,
+      includeMarket,
+      priceType,
+      marketSource: marketSourceLoaded || preferredSource,
+      byResourceValue,
+      grandValue
     });
   }
+
+  // ======= UI INIT / EVENTS =======
 
   function initSheetSelect() {
     els.sheet.innerHTML = "";
@@ -616,9 +858,9 @@
     catch (e) { setStatus(""); showError(e.message || String(e)); }
   });
 
-  els.calcBtn.addEventListener("click", calculate);
+  els.calcBtn.addEventListener("click", () => calculate());
 
-  els.copyBtn?.addEventListener("click", async () => {
+  els.copyBtn.addEventListener("click", async () => {
     try {
       await copyToClipboard(els.summaryOut.value || "");
       setStatus("Copied summary to clipboard.");
@@ -644,7 +886,7 @@
     if (!e.ctrlKey && e.key === "Enter") {
       if (document.activeElement && document.activeElement.tagName === "TEXTAREA") return;
       e.preventDefault();
-      calculate();
+      await calculate();
       return;
     }
 
