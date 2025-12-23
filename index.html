@@ -3,28 +3,264 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>MWI Housing Calculator</title>
+  <title>MWI Upgrade Cost Calculator</title>
+
+  <!-- Terminal font -->
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+
   <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; max-width: 980px; }
-    h1 { margin: 0 0 10px; }
-    .muted { color: #6b7280; font-size: 13px; }
-    .card { border: 1px solid #e5e7eb; border-radius: 14px; padding: 14px; margin-top: 14px; }
-    .row { display: grid; gap: 12px; grid-template-columns: 1.5fr 1fr 1fr; align-items: end; }
-    label { display: block; font-size: 13px; color: #333; margin-bottom: 6px; }
-    select, input { width: 100%; padding: 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 10px; }
-    button { padding: 10px 14px; font-size: 14px; border: 0; border-radius: 10px; cursor: pointer; }
-    .btn { background: #111827; color: #fff; }
-    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-    th, td { text-align: left; padding: 10px; border-bottom: 1px solid #eee; }
-    th { font-size: 13px; color: #374151; }
-    .right { text-align: right; }
-    .total { font-size: 18px; font-weight: 700; display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
-    .error { color: #b91c1c; background: #fee2e2; border: 1px solid #fecaca; padding: 10px; border-radius: 12px; margin-top: 12px; }
-    .pill { display:inline-block; padding: 4px 10px; border-radius: 999px; background:#f3f4f6; font-size: 12px; }
+    :root{
+      --bg:#020617;
+      --panel:#000;
+      --border:rgba(34,197,94,.35);
+      --border2:rgba(34,197,94,.2);
+      --text:#86efac;
+      --muted:#4ade80;
+      --accent:#22c55e;
+      --shadow:rgba(34,197,94,.25);
+
+      --danger-bg:#3f1d1d;
+      --danger-border:#7f1d1d;
+      --danger-text:#fecaca;
+
+      --coin:#fbbf24;
+      --lumber:#22c55e;
+      --log:#34d399;
+      --arcane:#a78bfa;
+      --ore:#93c5fd;
+      --herb:#bef264;
+      --food:#fb7185;
+      --generic:#86efac;
+    }
+
+    *{ box-sizing:border-box; }
+
+    body{
+      font-family:"JetBrains Mono", monospace;
+      background: radial-gradient(circle at top, #020617, #000);
+      color:var(--text);
+      margin:24px;
+      max-width:980px;
+    }
+
+    /* Subtle CRT scanlines */
+    body::after{
+      content:"";
+      pointer-events:none;
+      position:fixed;
+      inset:0;
+      background: repeating-linear-gradient(
+        to bottom,
+        rgba(255,255,255,.03),
+        rgba(255,255,255,.03) 1px,
+        transparent 1px,
+        transparent 3px
+      );
+      opacity:.06;
+    }
+
+    h1{
+      margin:0 0 10px;
+      color:var(--accent);
+      font-weight:600;
+      text-shadow:0 0 10px var(--shadow);
+      display:flex;
+      align-items:center;
+      gap:8px;
+    }
+
+    .cursor{
+      display:inline-block;
+      width:10px;
+      color:var(--accent);
+      animation: blink 1s steps(1) infinite;
+      text-shadow:0 0 10px var(--shadow);
+    }
+    @keyframes blink{ 50%{ opacity:0; } }
+
+    .muted{ color:var(--muted); font-size:12px; }
+
+    .card{
+      background: linear-gradient(180deg, rgba(0,0,0,.85), rgba(0,0,0,.6));
+      border:1px solid var(--border);
+      border-radius:14px;
+      padding:14px;
+      margin-top:14px;
+      box-shadow: inset 0 0 0 1px rgba(34,197,94,.08), 0 0 18px rgba(34,197,94,.06);
+    }
+
+    .row{
+      display:grid;
+      gap:12px;
+      grid-template-columns: 1.5fr 1fr 1fr;
+      align-items:end;
+    }
+
+    label{
+      display:block;
+      font-size:12px;
+      margin-bottom:6px;
+      color:var(--muted);
+    }
+
+    select, input{
+      width:100%;
+      padding:10px;
+      font-family:inherit;
+      font-size:13px;
+      background:var(--panel);
+      color:var(--text);
+      border:1px solid var(--border2);
+      border-radius:10px;
+      outline:none;
+    }
+    select:focus, input:focus{
+      border-color:var(--accent);
+      box-shadow:0 0 0 1px rgba(34,197,94,.35);
+    }
+
+    button{
+      padding:10px 14px;
+      font-family:inherit;
+      font-size:13px;
+      border-radius:10px;
+      border:1px solid var(--border2);
+      background:var(--panel);
+      color:var(--accent);
+      cursor:pointer;
+    }
+    button:hover{
+      background:rgba(34,197,94,.08);
+      box-shadow:0 0 10px rgba(34,197,94,.22);
+    }
+    .btn{
+      border-color:var(--accent);
+      color:#000;
+      background:var(--accent);
+      font-weight:600;
+    }
+    .btn:hover{ background:#16a34a; }
+
+    .pill{
+      display:inline-block;
+      padding:4px 10px;
+      border-radius:999px;
+      background:rgba(34,197,94,.15);
+      color:var(--accent);
+      font-size:11px;
+    }
+
+    .error{
+      background:var(--danger-bg);
+      border:1px solid var(--danger-border);
+      color:var(--danger-text);
+      padding:10px;
+      border-radius:12px;
+      margin-top:12px;
+      font-size:13px;
+    }
+
+    .promptTitle{
+      margin:18px 0 8px;
+      color:var(--accent);
+      font-weight:600;
+      text-shadow:0 0 10px rgba(34,197,94,.25);
+    }
+    .promptTitle::before{
+      content:"> ";
+      color:var(--muted);
+    }
+
+    table{
+      width:100%;
+      border-collapse:collapse;
+      margin-top:10px;
+      font-size:13px;
+    }
+    th, td{
+      padding:10px;
+      border-bottom:1px dashed rgba(34,197,94,.22);
+    }
+    th{
+      color:var(--muted);
+      font-weight:600;
+    }
+    .right{ text-align:right; }
+
+    .total{
+      font-size:18px;
+      font-weight:600;
+      color:var(--accent);
+      display:flex;
+      justify-content:space-between;
+      margin-top:10px;
+      text-shadow:0 0 10px rgba(34,197,94,.35);
+    }
+
+    details summary{
+      cursor:pointer;
+      color:var(--accent);
+      list-style:none;
+    }
+    details summary::-webkit-details-marker{ display:none; }
+    details summary::before{
+      content:"> ";
+      color:var(--muted);
+    }
+    details[open] summary .chev{ transform:rotate(90deg); }
+    .chev{
+      display:inline-block;
+      margin-right:6px;
+      transition: transform .15s ease;
+    }
+
+    /* Resource color coding */
+    .res-coin{ color:var(--coin); text-shadow:0 0 10px rgba(251,191,36,.18); }
+    .res-lumber{ color:var(--lumber); }
+    .res-log{ color:var(--log); }
+    .res-arcane{ color:var(--arcane); text-shadow:0 0 10px rgba(167,139,250,.18); }
+    .res-ore{ color:var(--ore); }
+    .res-herb{ color:var(--herb); }
+    .res-food{ color:var(--food); }
+    .res-generic{ color:var(--generic); }
+
+    /* Summary output box */
+    .output{
+      width:100%;
+      min-height:120px;
+      margin-top:10px;
+      padding:10px;
+      border-radius:12px;
+      border:1px solid var(--border2);
+      background:#000;
+      color:var(--text);
+      font-family:inherit;
+      font-size:12px;
+      resize:vertical;
+    }
+
+    .hintRow{
+      display:flex;
+      gap:12px;
+      flex-wrap:wrap;
+      align-items:center;
+      justify-content:space-between;
+      margin-top:10px;
+    }
+
+    .kbd{
+      border:1px solid rgba(34,197,94,.25);
+      padding:2px 6px;
+      border-radius:8px;
+      color:var(--muted);
+      font-size:11px;
+      background:rgba(34,197,94,.06);
+    }
   </style>
 </head>
+
 <body>
-  <h1>MWI Upgrade Cost Calculator</h1>
+  <h1>MWI Upgrade Cost Calculator <span class="cursor">▊</span></h1>
   <div class="muted">Choose a building tab, then pick current + target level. We sum only the levels you still need.</div>
 
   <div class="card">
@@ -66,7 +302,19 @@
       <div id="grandTotal">—</div>
     </div>
 
-    <h3 style="margin:18px 0 8px;">Breakdown by Resource</h3>
+    <div class="promptTitle">Terminal Output</div>
+    <div class="hintRow">
+      <div class="muted">
+        Shortcuts:
+        <span class="kbd">Enter</span> calculate
+        <span class="kbd">Ctrl+K</span> focus building
+        <span class="kbd">Ctrl+Enter</span> copy summary
+      </div>
+      <button id="copyBtn">Copy Summary</button>
+    </div>
+    <textarea id="summaryOut" class="output" readonly></textarea>
+
+    <div class="promptTitle">Breakdown by Resource</div>
     <table>
       <thead>
         <tr>
@@ -77,22 +325,23 @@
       <tbody id="resourceRows"></tbody>
     </table>
 
-<details id="lineItemsDetails">
-  <summary style="margin:18px 0 8px; cursor:pointer; font-weight:600;">
-    Line Items <span class="muted" id="lineItemsHint"></span>
-  </summary>
+    <details id="lineItemsDetails">
+      <summary style="margin:18px 0 8px; font-weight:600;">
+        <span class="chev">▶</span>
+        Line Items <span class="muted" id="lineItemsHint"></span>
+      </summary>
 
-  <table>
-    <thead>
-      <tr>
-        <th>Level</th>
-        <th>Resource</th>
-        <th class="right">Amount</th>
-      </tr>
-    </thead>
-    <tbody id="lineRows"></tbody>
-  </table>
-</details>
+      <table>
+        <thead>
+          <tr>
+            <th>Level</th>
+            <th>Resource</th>
+            <th class="right">Amount</th>
+          </tr>
+        </thead>
+        <tbody id="lineRows"></tbody>
+      </table>
+    </details>
   </div>
 
 <script>
@@ -134,6 +383,8 @@
     grandTotal: document.getElementById("grandTotal"),
     resourceRows: document.getElementById("resourceRows"),
     lineRows: document.getElementById("lineRows"),
+    copyBtn: document.getElementById("copyBtn"),
+    summaryOut: document.getElementById("summaryOut"),
     lineItemsDetails: document.getElementById("lineItemsDetails"),
     lineItemsHint: document.getElementById("lineItemsHint"),
   };
@@ -176,74 +427,105 @@
     return "";
   }
 
-  function parseAmount(raw) {
-    // Handles: "500,000", "-3,000", "6", "12,000", etc.
-    const s = String(raw).trim();
-    if (!s || s === "-" || s === "—") return null;
-    const cleaned = s.replace(/,/g, "").match(/-?\d+(\.\d+)?/);
-    if (!cleaned) return null;
-    const num = Number(cleaned[0]);
-    return Number.isFinite(num) ? num : null;
+  function resourceClass(resourceName) {
+    const r = String(resourceName || "").toLowerCase();
+    if (r.includes("coin")) return "res-coin";
+    if (r.includes("lumber")) return "res-lumber";
+    if (r.includes("log")) return "res-log";
+    if (r.includes("arcane")) return "res-arcane";
+    if (r.includes("ore") || r.includes("bar") || r.includes("ingot")) return "res-ore";
+    if (r.includes("herb") || r.includes("leaf") || r.includes("root")) return "res-herb";
+    if (r.includes("bread") || r.includes("cheese") || r.includes("stew") || r.includes("meal")) return "res-food";
+    return "res-generic";
+  }
+
+  function buildSummaryText({ sheetName, fromLevel, toLevel, current, items, byResource, grand }) {
+    const lines = [];
+    lines.push(`> ${sheetName}`);
+    lines.push(`> Range: L${fromLevel} -> L${toLevel} (current: L${current})`);
+    lines.push(`> Items: ${items.length}`);
+    lines.push(`> ------------------------------`);
+    lines.push(`> Breakdown:`);
+
+    const sorted = [...byResource.entries()].sort((a,b) => b[1]-a[1]);
+    for (const [res, total] of sorted) {
+      lines.push(`  - ${res}: ${formatNumber(total)}`);
+    }
+
+    lines.push(`> ------------------------------`);
+    lines.push(`> Grand Total: ${formatNumber(grand)}`);
+    lines.push(`>`);
+    lines.push(`> Line Items:`);
+
+    for (const it of items) {
+      const res = String(it.resource);
+      lines.push(`  L${it.level}  ${res.padEnd(22, " ")}  ${formatNumber(it.amount)}`);
+    }
+
+    return lines.join("\n");
+  }
+
+  async function copyToClipboard(text) {
+    await navigator.clipboard.writeText(text);
   }
 
   async function loadTab(sheetName) {
-  clearError();
-  setStatus(`Loading "${sheetName}"…`);
+    clearError();
+    setStatus(`Loading "${sheetName}"…`);
 
-  const res = await fetch(gvizUrl(sheetName), { cache: "no-store" });
-  if (!res.ok) throw new Error(`Failed to fetch "${sheetName}". (Is the tab name correct?)`);
-  const raw = await res.text();
-  const json = parseGvizJson(raw);
+    const res = await fetch(gvizUrl(sheetName), { cache: "no-store" });
+    if (!res.ok) throw new Error(`Failed to fetch "${sheetName}". (Is the tab name correct?)`);
+    const raw = await res.text();
+    const json = parseGvizJson(raw);
 
-  const table = json.table;
-  if (!table || !table.cols || !table.rows) throw new Error(`No table data returned for "${sheetName}".`);
+    const table = json.table;
+    if (!table || !table.cols || !table.rows) throw new Error(`No table data returned for "${sheetName}".`);
 
-  // ✅ Each column = one level (Level 1..Level 8)
-  const colCount = table.cols.length;
-  const maxLevel = colCount;
+    // ✅ Each column = one level (Level 1..Level 8)
+    const colCount = table.cols.length;
+    const maxLevel = colCount;
 
-  const levels = {};
-  for (let lvl = 1; lvl <= maxLevel; lvl++) levels[lvl] = [];
+    const levels = {};
+    for (let lvl = 1; lvl <= maxLevel; lvl++) levels[lvl] = [];
 
-  // Helper: parse a cell like "500,000 Coin" or "-9 Cheese Hatchet" or "-"
-  function parseCellToItem(cellText) {
-    const s = String(cellText || "").trim();
-    if (!s || s === "-" || s === "—") return null;
+    // Helper: parse a cell like "500,000 Coin" or "-9 Cheese Hatchet" or "-"
+    function parseCellToItem(cellText) {
+      const s = String(cellText || "").trim();
+      if (!s || s === "-" || s === "—") return null;
 
-    // match leading number (supports commas + negatives)
-    const m = s.match(/^(-?\d[\d,]*)(?:\s+(.+))?$/);
-    if (!m) return null;
+      // match leading number (supports commas + negatives)
+      const m = s.match(/^(-?\d[\d,]*)(?:\s+(.+))?$/);
+      if (!m) return null;
 
-    const amount = Number(m[1].replace(/,/g, ""));
-    if (!Number.isFinite(amount)) return null;
+      const amount = Number(m[1].replace(/,/g, ""));
+      if (!Number.isFinite(amount)) return null;
 
-    const resource = (m[2] || "").trim();
-    if (!resource) return null;
+      const resource = (m[2] || "").trim();
+      if (!resource) return null;
 
-    return { amount, resource };
-  }
-
-  // Each row has 8 cells (one per level column)
-  for (const r of table.rows) {
-    const c = r.c || [];
-    for (let lvl = 1; lvl <= maxLevel; lvl++) {
-      const cellText = toCellString(c[lvl - 1]);
-      const item = parseCellToItem(cellText);
-      if (!item) continue;
-      levels[lvl].push(item);
+      return { amount, resource };
     }
+
+    // Each row has N cells (one per level column)
+    for (const r of table.rows) {
+      const c = r.c || [];
+      for (let lvl = 1; lvl <= maxLevel; lvl++) {
+        const cellText = toCellString(c[lvl - 1]);
+        const item = parseCellToItem(cellText);
+        if (!item) continue;
+        levels[lvl].push(item);
+      }
+    }
+
+    loaded = { sheetName, maxLevel, levels };
+    setStatus(`Loaded "${sheetName}" (max level: ${maxLevel}).`);
+
+    // Clamp inputs to max level
+    const cur = Number(els.currentLevel.value) || 0;
+    const tgt = Number(els.targetLevel.value) || 1;
+    if (tgt > maxLevel) els.targetLevel.value = String(maxLevel);
+    if (cur > maxLevel) els.currentLevel.value = String(maxLevel);
   }
-
-  loaded = { sheetName, maxLevel, levels };
-  setStatus(`Loaded "${sheetName}" (max level: ${maxLevel}).`);
-
-  // Clamp inputs to max level
-  const cur = Number(els.currentLevel.value) || 0;
-  const tgt = Number(els.targetLevel.value) || 1;
-  if (tgt > maxLevel) els.targetLevel.value = String(maxLevel);
-  if (cur > maxLevel) els.currentLevel.value = String(maxLevel);
-}
-
 
   function calculate() {
     clearError();
@@ -283,23 +565,39 @@
     els.results.style.display = "block";
     els.rangeText.textContent = `${loaded.sheetName} — Levels ${fromLevel} → ${toLevel} (current: ${current})`;
     els.rowsText.textContent = `${items.length} line item(s)`;
-    els.lineItemsHint.textContent = `(${items.length})`;
     els.grandTotal.textContent = formatNumber(grand);
+    els.lineItemsHint.textContent = `(${items.length})`;
 
+    // Breakdown table (colored resources)
     els.resourceRows.innerHTML = "";
     [...byResource.entries()]
       .sort((a,b) => b[1] - a[1])
       .forEach(([resource, total]) => {
         const tr = document.createElement("tr");
-        tr.innerHTML = `<td>${resource}</td><td class="right">${formatNumber(total)}</td>`;
+        tr.innerHTML = `<td><span class="${resourceClass(resource)}">${resource}</span></td><td class="right">${formatNumber(total)}</td>`;
         els.resourceRows.appendChild(tr);
       });
 
+    // Line items (colored resources)
     els.lineRows.innerHTML = "";
     items.forEach((it) => {
       const tr = document.createElement("tr");
-      tr.innerHTML = `<td>${it.level}</td><td>${it.resource}</td><td class="right">${formatNumber(it.amount)}</td>`;
+      tr.innerHTML =
+        `<td>${it.level}</td>
+         <td><span class="${resourceClass(it.resource)}">${it.resource}</span></td>
+         <td class="right">${formatNumber(it.amount)}</td>`;
       els.lineRows.appendChild(tr);
+    });
+
+    // Terminal output
+    els.summaryOut.value = buildSummaryText({
+      sheetName: loaded.sheetName,
+      fromLevel,
+      toLevel,
+      current,
+      items,
+      byResource,
+      grand
     });
   }
 
@@ -319,6 +617,48 @@
   });
 
   els.calcBtn.addEventListener("click", calculate);
+
+  els.copyBtn?.addEventListener("click", async () => {
+    try {
+      await copyToClipboard(els.summaryOut.value || "");
+      setStatus("Copied summary to clipboard.");
+      setTimeout(() => setStatus(""), 1200);
+    } catch (e) {
+      showError("Copy failed. Your browser may be blocking clipboard access.");
+    }
+  });
+
+  // Keyboard shortcuts:
+  // Enter = calculate (unless focused in textarea)
+  // Ctrl+K = focus building dropdown
+  // Ctrl+Enter = copy summary
+  document.addEventListener("keydown", async (e) => {
+    const key = e.key.toLowerCase();
+
+    if (e.ctrlKey && key === "k") {
+      e.preventDefault();
+      els.sheet.focus();
+      return;
+    }
+
+    if (!e.ctrlKey && e.key === "Enter") {
+      if (document.activeElement && document.activeElement.tagName === "TEXTAREA") return;
+      e.preventDefault();
+      calculate();
+      return;
+    }
+
+    if (e.ctrlKey && e.key === "Enter") {
+      e.preventDefault();
+      try {
+        await copyToClipboard(els.summaryOut.value || "");
+        setStatus("Copied summary to clipboard.");
+        setTimeout(() => setStatus(""), 1200);
+      } catch (err) {
+        showError("Copy failed. Your browser may be blocking clipboard access.");
+      }
+    }
+  });
 
   // Initialize
   (async function boot() {
