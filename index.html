@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>MWI Housing Calculator</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; max-width: 980px; }
+    h1 { margin: 0 0 10px; }
+    .muted { color: #6b7280; font-size: 13px; }
+    .card { border: 1px solid #e5e7eb; border-radius: 14px; padding: 14px; margin-top: 14px; }
+    .row { display: grid; gap: 12px; grid-template-columns: 1.5fr 1fr 1fr; align-items: end; }
+    label { display: block; font-size: 13px; color: #333; margin-bottom: 6px; }
+    select, input { width: 100%; padding: 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 10px; }
+    button { padding: 10px 14px; font-size: 14px; border: 0; border-radius: 10px; cursor: pointer; }
+    .btn { background: #111827; color: #fff; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { text-align: left; padding: 10px; border-bottom: 1px solid #eee; }
+    th { font-size: 13px; color: #374151; }
+    .right { text-align: right; }
+    .total { font-size: 18px; font-weight: 700; display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
+    .error { color: #b91c1c; background: #fee2e2; border: 1px solid #fecaca; padding: 10px; border-radius: 12px; margin-top: 12px; }
+    .pill { display:inline-block; padding: 4px 10px; border-radius: 999px; background:#f3f4f6; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>MWI Upgrade Cost Calculator</h1>
+  <div class="muted">Choose a building tab, then pick current + target level. We sum only the levels you still need.</div>
+
+  <div class="card">
+    <div class="row">
+      <div>
+        <label for="sheet">Building / Tab</label>
+        <select id="sheet"></select>
+      </div>
+      <div>
+        <label for="currentLevel">Current Level</label>
+        <input id="currentLevel" type="number" min="0" value="0" />
+      </div>
+      <div>
+        <label for="targetLevel">Target Level</label>
+        <input id="targetLevel" type="number" min="1" value="1" />
+      </div>
+    </div>
+
+    <div style="display:flex; gap:10px; margin-top:12px; align-items:center;">
+      <button class="btn" id="calcBtn">Calculate</button>
+      <button id="reloadBtn">Reload Tab Data</button>
+      <span class="muted" id="status"></span>
+    </div>
+
+    <div id="err" class="error" style="display:none;"></div>
+  </div>
+
+  <div class="card" id="results" style="display:none;">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <div>
+        <div class="muted">Selected Range</div>
+        <div id="rangeText" style="font-weight:600;"></div>
+      </div>
+      <div class="pill" id="rowsText"></div>
+    </div>
+
+    <div class="total">
+      <div>Grand Total (numeric sums)</div>
+      <div id="grandTotal">—</div>
+    </div>
+
+    <h3 style="margin:18px 0 8px;">Breakdown by Resource</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Resource</th>
+          <th class="right">Total Amount</th>
+        </tr>
+      </thead>
+      <tbody id="resourceRows"></tbody>
+    </table>
+
+    <h3 style="margin:18px 0 8px;">Line Items</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Level</th>
+          <th>Resource</th>
+          <th class="right">Amount</th>
+        </tr>
+      </thead>
+      <tbody id="lineRows"></tbody>
+    </table>
+  </div>
+
+<script>
+  // Your sheet ID (from your link)
+  const SHEET_ID = "16Dcwa4OSYKn7emoca1aqoS-RGo_SeJEPHS2_yfC9iFs";
+
+  // Tab names (add/remove as needed)
+  const SHEETS = [
+    "Skilling - Log Shed",
+    "Skilling - Dairy Barn",
+    "Skilling - Garden",
+    "Skilling - Forge",
+    "Skilling - Workshop",
+    "Skilling - Sewing Parlor",
+    "Skilling - Kitchen",
+    "Skilling - Brewery",
+    "Skilling - Laboratory",
+    "Skilling - Observatory",
+    "Combat - Dining Room",
+    "Combat - Library",
+    "Combat - Dojo",
+    "Combat - Gym",
+    "Combat - Armory",
+    "Combat - Archery Range",
+    "Combat - Mystical Study",
+  ];
+
+  const els = {
+    sheet: document.getElementById("sheet"),
+    currentLevel: document.getElementById("currentLevel"),
+    targetLevel: document.getElementById("targetLevel"),
+    calcBtn: document.getElementById("calcBtn"),
+    reloadBtn: document.getElementById("reloadBtn"),
+    status: document.getElementById("status"),
+    err: document.getElementById("err"),
+    results: document.getElementById("results"),
+    rangeText: document.getElementById("rangeText"),
+    rowsText: document.getElementById("rowsText"),
+    grandTotal: document.getElementById("grandTotal"),
+    resourceRows: document.getElementById("resourceRows"),
+    lineRows: document.getElementById("lineRows"),
+  };
+
+  // Loaded tab data:
+  // levels[levelNumber] = [{ amount:number, resource:string }, ...]
+  let loaded = { sheetName: null, maxLevel: 0, levels: {} };
+
+  function setStatus(msg) { els.status.textContent = msg || ""; }
+  function showError(msg) { els.err.style.display = "block"; els.err.textContent = msg; }
+  function clearError() { els.err.style.display = "none"; els.err.textContent = ""; }
+
+  function formatNumber(n) {
+    return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+  }
+
+  // Fetch tab via Google Visualization (no API key required for public/viewable sheets)
+  function gvizUrl(sheetName) {
+    const base = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq`;
+    const params = new URLSearchParams({
+      tqx: "out:json",
+      sheet: sheetName
+    });
+    return `${base}?${params.toString()}`;
+  }
+
+  function parseGvizJson(text) {
+    // Response looks like: google.visualization.Query.setResponse({...});
+    const start = text.indexOf("{");
+    const end = text.lastIndexOf("}");
+    if (start === -1 || end === -1) throw new Error("Unexpected gviz response.");
+    return JSON.parse(text.slice(start, end + 1));
+  }
+
+  function toCellString(cell) {
+    // cell can be null or {v:..., f:...}
+    if (!cell) return "";
+    if (cell.f != null) return String(cell.f);
+    if (cell.v != null) return String(cell.v);
+    return "";
+  }
+
+  function parseAmount(raw) {
+    // Handles: "500,000", "-3,000", "6", "12,000", etc.
+    const s = String(raw).trim();
+    if (!s || s === "-" || s === "—") return null;
+    const cleaned = s.replace(/,/g, "").match(/-?\d+(\.\d+)?/);
+    if (!cleaned) return null;
+    const num = Number(cleaned[0]);
+    return Number.isFinite(num) ? num : null;
+  }
+
+  async function loadTab(sheetName) {
+    clearError();
+    setStatus(`Loading "${sheetName}"…`);
+
+    const res = await fetch(gvizUrl(sheetName), { cache: "no-store" });
+    if (!res.ok) throw new Error(`Failed to fetch "${sheetName}". (Is the tab name correct?)`);
+    const raw = await res.text();
+    const json = parseGvizJson(raw);
+
+    const table = json.table;
+    if (!table || !table.cols || !table.rows) throw new Error(`No table data returned for "${sheetName}".`);
+
+    // Headers are "Level 1", "Level 2", etc across columns, but your data uses pairs:
+    // (Amount, Resource) repeated per level.
+    // So col 0-1 => Level 1, col 2-3 => Level 2, etc.
+    const colCount = table.cols.length;
+    const maxLevel = Math.floor(colCount / 2);
+
+    const levels = {};
+    for (let lvl = 1; lvl <= maxLevel; lvl++) levels[lvl] = [];
+
+    // Each row contains items for each level-pair.
+    for (const r of table.rows) {
+      const c = r.c || [];
+      for (let lvl = 1; lvl <= maxLevel; lvl++) {
+        const amountCell = toCellString(c[(lvl - 1) * 2]);
+        const resourceCell = toCellString(c[(lvl - 1) * 2 + 1]);
+
+        const amount = parseAmount(amountCell);
+        const resource = String(resourceCell || "").trim();
+
+        if (amount == null || !resource) continue;
+        levels[lvl].push({ amount, resource });
+      }
+    }
+
+    loaded = { sheetName, maxLevel, levels };
+    setStatus(`Loaded "${sheetName}" (max level: ${maxLevel}).`);
+
+    // Helpful UX: auto-adjust target if beyond max
+    const cur = Number(els.currentLevel.value) || 0;
+    const tgt = Number(els.targetLevel.value) || 1;
+    if (tgt > maxLevel) els.targetLevel.value = String(maxLevel);
+    if (cur > maxLevel) els.currentLevel.value = String(maxLevel);
+  }
+
+  function calculate() {
+    clearError();
+
+    if (!loaded.sheetName) return showError("Load a tab first.");
+
+    const current = Number(els.currentLevel.value);
+    const target = Number(els.targetLevel.value);
+
+    if (!Number.isFinite(current) || current < 0) return showError("Current level must be 0 or higher.");
+    if (!Number.isFinite(target) || target < 1) return showError("Target level must be 1 or higher.");
+    if (target <= current) return showError("Target level must be higher than current level.");
+    if (target > loaded.maxLevel) return showError(`Target level can't exceed ${loaded.maxLevel} for this tab.`);
+
+    const fromLevel = current + 1;
+    const toLevel = target;
+
+    const items = [];
+    for (let lvl = fromLevel; lvl <= toLevel; lvl++) {
+      for (const it of (loaded.levels[lvl] || [])) {
+        items.push({ level: lvl, amount: it.amount, resource: it.resource });
+      }
+    }
+
+    if (items.length === 0) return showError(`No items found for levels ${fromLevel}-${toLevel}.`);
+
+    // Breakdown
+    const byResource = new Map();
+    let grand = 0;
+
+    for (const it of items) {
+      grand += it.amount;
+      byResource.set(it.resource, (byResource.get(it.resource) || 0) + it.amount);
+    }
+
+    // Render
+    els.results.style.display = "block";
+    els.rangeText.textContent = `${loaded.sheetName} — Levels ${fromLevel} → ${toLevel} (current: ${current})`;
+    els.rowsText.textContent = `${items.length} line item(s)`;
+    els.grandTotal.textContent = formatNumber(grand);
+
+    els.resourceRows.innerHTML = "";
+    [...byResource.entries()]
+      .sort((a,b) => b[1] - a[1])
+      .forEach(([resource, total]) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${resource}</td><td class="right">${formatNumber(total)}</td>`;
+        els.resourceRows.appendChild(tr);
+      });
+
+    els.lineRows.innerHTML = "";
+    items.forEach((it) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${it.level}</td><td>${it.resource}</td><td class="right">${formatNumber(it.amount)}</td>`;
+      els.lineRows.appendChild(tr);
+    });
+  }
+
+  function initSheetSelect() {
+    els.sheet.innerHTML = "";
+    SHEETS.forEach(name => {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      els.sheet.appendChild(opt);
+    });
+  }
+
+  els.reloadBtn.addEventListener("click", async () => {
+    try { await loadTab(els.sheet.value); }
+    catch (e) { setStatus(""); showError(e.message || String(e)); }
+  });
+
+  els.calcBtn.addEventListener("click", calculate);
+
+  // Initialize
+  (async function boot() {
+    initSheetSelect();
+    try { await loadTab(els.sheet.value); }
+    catch (e) { setStatus(""); showError(e.message || String(e)); }
+  })();
+</script>
+</body>
+</html>
