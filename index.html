@@ -242,7 +242,7 @@
     /* Summary output box */
     .output{
       width:100%;
-      min-height:140px;
+      min-height:150px;
       margin-top:10px;
       padding:10px;
       border-radius:12px;
@@ -330,9 +330,10 @@
       <div>
         <label for="marketSource">Market Source</label>
         <select id="marketSource">
-          <option value="official">Official (marketplace.json)</option>
-          <option value="github_marketapi">GitHub MWIApi (marketapi.json)</option>
-          <option value="github_median">GitHub MWIApi (medianmarket.json)</option>
+          <option value="github_milkyapi" selected>GitHub (milkyapi.json) — recommended</option>
+          <option value="github_marketapi">GitHub (marketapi.json)</option>
+          <option value="github_median">GitHub (medianmarket.json)</option>
+          <option value="official">Official (marketplace.json) — raw</option>
         </select>
       </div>
 
@@ -346,7 +347,7 @@
     </div>
 
     <div class="muted" style="margin-top:10px;">
-      Tip: if Official is blocked by CORS on GitHub Pages, pick a GitHub MWIApi source instead.
+      Tip: prefer milkyapi/marketapi/medianmarket for correct name-keyed lookups. (Official is HRID/raw and may be CORS-blocked on Pages.)
     </div>
 
     <div id="err" class="error" style="display:none;"></div>
@@ -390,6 +391,7 @@
         <tr>
           <th>Resource</th>
           <th class="right">Total Amount</th>
+          <th class="right">Unit (Coin)</th>
           <th class="right">Value (Coin)</th>
         </tr>
       </thead>
@@ -408,6 +410,7 @@
             <th>Level</th>
             <th>Resource</th>
             <th class="right">Amount</th>
+            <th class="right">Unit (Coin)</th>
             <th class="right">Value (Coin)</th>
           </tr>
         </thead>
@@ -419,10 +422,8 @@
 <script>
   // ======= CONFIG =======
 
-  // Your sheet ID (from your link)
   const SHEET_ID = "16Dcwa4OSYKn7emoca1aqoS-RGo_SeJEPHS2_yfC9iFs";
 
-  // Tab names (add/remove as needed)
   const SHEETS = [
     "Skilling - Log Shed",
     "Skilling - Dairy Barn",
@@ -443,11 +444,10 @@
     "Combat - Mystical Study",
   ];
 
-  // Market sources:
-  // Official marketplace.json is referenced by community tools and patch notes. :contentReference[oaicite:3]{index=3}
-  // MWIApi repo documents marketapi.json and medianmarket.json. :contentReference[oaicite:4]{index=4}
+  // Prefer name-keyed feeds; keep official for completeness (raw/HRID keyed).
   const MARKET_URLS = {
     official: "https://www.milkywayidle.com/game_data/marketplace.json",
+    github_milkyapi: "https://raw.githubusercontent.com/holychikenz/MWIApi/refs/heads/main/milkyapi.json",
     github_marketapi: "https://raw.githubusercontent.com/holychikenz/MWIApi/main/marketapi.json",
     github_median: "https://raw.githubusercontent.com/holychikenz/MWIApi/main/medianmarket.json",
   };
@@ -484,13 +484,11 @@
 
   // ======= STATE =======
 
-  // Loaded sheet tab data:
-  // levels[levelNumber] = [{ amount:number, resource:string }, ...]
   let loaded = { sheetName: null, maxLevel: 0, levels: {} };
 
-  // Cached market json in memory
   let marketData = null;
-  let marketSourceLoaded = null;
+  let marketIndex = null;        // case/space-insensitive index
+  let marketSourceLoaded = null; // actual loaded source (after fallback)
 
   // ======= HELPERS =======
 
@@ -506,6 +504,21 @@
     return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
   }
 
+  function normKey(s) {
+    return String(s ?? "")
+      .trim()
+      .replace(/\s+/g, " ")
+      .toLowerCase();
+  }
+
+  function buildMarketIndex(data) {
+    const idx = new Map();
+    for (const [name, entry] of Object.entries(data?.market || {})) {
+      idx.set(normKey(name), entry);
+    }
+    return idx;
+  }
+
   function resourceClass(resourceName) {
     const r = String(resourceName || "").toLowerCase();
     if (r.includes("coin")) return "res-coin";
@@ -514,11 +527,11 @@
     if (r.includes("arcane")) return "res-arcane";
     if (r.includes("ore") || r.includes("bar") || r.includes("ingot")) return "res-ore";
     if (r.includes("herb") || r.includes("leaf") || r.includes("root")) return "res-herb";
-    if (r.includes("bread") || r.includes("cheese") || r.includes("stew") || r.includes("meal")) return "res-food";
+    if (r.includes("bread") || r.includes("cheese") || r.includes("stew") || r.includes("meal") || r.includes("milk")) return "res-food";
     return "res-generic";
   }
 
-  // Google Visualization fetch (no API key for public/viewable sheets)
+  // Google Visualization fetch (public/viewable sheets)
   function gvizUrl(sheetName) {
     const base = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq`;
     const params = new URLSearchParams({ tqx: "out:json", sheet: sheetName });
@@ -526,7 +539,6 @@
   }
 
   function parseGvizJson(text) {
-    // Response: google.visualization.Query.setResponse({...});
     const start = text.indexOf("{");
     const end = text.lastIndexOf("}");
     if (start === -1 || end === -1) throw new Error("Unexpected gviz response.");
@@ -558,7 +570,7 @@
   }
 
   function marketCacheKey(source) {
-    return `mwi_market_${source}_v1`;
+    return `mwi_market_${source}_v2`;
   }
 
   async function fetchJson(url) {
@@ -575,7 +587,10 @@
       try {
         const obj = JSON.parse(cached);
         if (obj?.ts && (Date.now() - obj.ts) < 10 * 60 * 1000 && obj.data) {
-          return obj.data;
+          const data = obj.data;
+          if (data.market && typeof data.market === "object") {
+            return { data, idx: buildMarketIndex(data) };
+          }
         }
       } catch {}
     }
@@ -583,22 +598,63 @@
     const url = MARKET_URLS[source];
     const data = await fetchJson(url);
 
-    // We expect a .market object from these common sources. :contentReference[oaicite:5]{index=5}
     if (!data || typeof data !== "object") throw new Error("Bad JSON");
+
+    // Name-keyed feeds should include `market`.
     if (!data.market || typeof data.market !== "object") throw new Error("Missing `market` object");
 
+    // Ensure Coin exists
+    if (!data.market.Coin) data.market.Coin = { ask: 1, bid: 1 };
+
+    const idx = buildMarketIndex(data);
+
     localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data }));
-    return data;
+    return { data, idx };
   }
 
-  function getItemPriceCoin(itemName, priceType, data) {
-    // returns coin price per unit, or null if missing/invalid
-    const entry = data?.market?.[itemName];
+  function getItemPriceCoin(itemName, priceType) {
+    const entry = marketIndex?.get(normKey(itemName));
     const p = entry?.[priceType];
+
     if (p === undefined || p === null) return null;
-    if (p === -1) return null; // some feeds use -1 for "no price"
+    if (p === -1) return null;
     if (!Number.isFinite(p)) return null;
     return p;
+  }
+
+  async function ensureMarketLoaded(preferredSource) {
+    if (marketData && marketSourceLoaded === preferredSource && marketIndex) return;
+
+    // Prefer name-keyed sources first, fallback to others
+    const attempts = [
+      preferredSource,
+      "github_milkyapi",
+      "github_marketapi",
+      "github_median",
+      "official",
+    ].filter((v, i, arr) => arr.indexOf(v) === i);
+
+    let lastErr = null;
+
+    for (const src of attempts) {
+      try {
+        const { data, idx } = await loadMarketData(src);
+
+        // If "official" looks HRID/raw, reject it (needs formatting)
+        if (src === "official" && data?.marketData && !data?.market?.["Holy Milk"]) {
+          throw new Error("Official market feed appears HRID-keyed; use a GitHub source instead.");
+        }
+
+        marketData = data;
+        marketIndex = idx;
+        marketSourceLoaded = src;
+        return;
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+
+    throw new Error(`Market load failed: ${lastErr?.message || lastErr || "unknown error"}`);
   }
 
   function buildSummaryText({ sheetName, fromLevel, toLevel, current, items, byResource, grand, includeMarket, priceType, marketSource, byResourceValue, grandValue }) {
@@ -612,8 +668,10 @@
     const sorted = [...byResource.entries()].sort((a,b) => b[1]-a[1]);
     for (const [res, total] of sorted) {
       const maybeVal = includeMarket ? byResourceValue.get(res) : null;
+      const maybeUnit = includeMarket ? (byResourceValue.get(res) != null && (byResource.get(res) || 0) !== 0 ? (maybeVal / total) : null) : null;
+
       if (includeMarket) {
-        lines.push(`  - ${res}: ${formatNumber(total)}  |  value: ${maybeVal != null ? formatCoin(maybeVal) : "-"}`);
+        lines.push(`  - ${res}: ${formatNumber(total)} | unit: ${maybeUnit != null ? formatCoin(maybeUnit) : "-"} | value: ${maybeVal != null ? formatCoin(maybeVal) : "-"}`);
       } else {
         lines.push(`  - ${res}: ${formatNumber(total)}`);
       }
@@ -631,9 +689,8 @@
 
     for (const it of items) {
       const res = String(it.resource);
-      const val = includeMarket ? it.valueCoin : null;
       if (includeMarket) {
-        lines.push(`  L${it.level}  ${res.padEnd(22, " ")}  ${formatNumber(it.amount)}  |  ${val != null ? formatCoin(val) : "-"}`);
+        lines.push(`  L${it.level}  ${res.padEnd(22, " ")}  ${formatNumber(it.amount)} | unit: ${it.unitCoin != null ? formatCoin(it.unitCoin) : "-"} | ${it.valueCoin != null ? formatCoin(it.valueCoin) : "-"}`);
       } else {
         lines.push(`  L${it.level}  ${res.padEnd(22, " ")}  ${formatNumber(it.amount)}`);
       }
@@ -646,7 +703,7 @@
     await navigator.clipboard.writeText(text);
   }
 
-  // ======= DATA LOADERS =======
+  // ======= LOAD SHEET TAB =======
 
   async function loadTab(sheetName) {
     clearError();
@@ -661,9 +718,8 @@
     const table = json.table;
     if (!table || !table.cols || !table.rows) throw new Error(`No table data returned for "${sheetName}".`);
 
-    // Each column = one level (Level 1..Level 8)
-    const colCount = table.cols.length;
-    const maxLevel = colCount;
+    // Each column = one level
+    const maxLevel = table.cols.length;
 
     const levels = {};
     for (let lvl = 1; lvl <= maxLevel; lvl++) levels[lvl] = [];
@@ -681,40 +737,14 @@
     loaded = { sheetName, maxLevel, levels };
     setStatus(`Loaded "${sheetName}" (max level: ${maxLevel}).`);
 
-    // Clamp inputs to max level
+    // Clamp inputs
     const cur = Number(els.currentLevel.value) || 0;
     const tgt = Number(els.targetLevel.value) || 1;
     if (tgt > maxLevel) els.targetLevel.value = String(maxLevel);
     if (cur > maxLevel) els.currentLevel.value = String(maxLevel);
   }
 
-  async function ensureMarketLoaded(preferredSource) {
-    // If already loaded for this source, nothing to do
-    if (marketData && marketSourceLoaded === preferredSource) return;
-
-    // Try preferred, then fallback order
-    const attempts = [
-      preferredSource,
-      preferredSource === "official" ? "github_marketapi" : "official",
-      "github_marketapi",
-      "github_median"
-    ].filter((v, i, arr) => arr.indexOf(v) === i);
-
-    let lastErr = null;
-    for (const src of attempts) {
-      try {
-        const data = await loadMarketData(src);
-        marketData = data;
-        marketSourceLoaded = src;
-        return;
-      } catch (e) {
-        lastErr = e;
-      }
-    }
-    throw new Error(`Market load failed (${lastErr?.message || lastErr || "unknown"})`);
-  }
-
-  // ======= CALCULATION / RENDER =======
+  // ======= CALCULATE / RENDER =======
 
   async function calculate() {
     clearError();
@@ -736,13 +766,19 @@
     const items = [];
     for (let lvl = fromLevel; lvl <= toLevel; lvl++) {
       for (const it of (loaded.levels[lvl] || [])) {
-        items.push({ level: lvl, amount: it.amount, resource: it.resource, valueCoin: null });
+        items.push({
+          level: lvl,
+          amount: it.amount,
+          resource: it.resource,
+          unitCoin: null,
+          valueCoin: null
+        });
       }
     }
 
     if (items.length === 0) return showError(`No items found for levels ${fromLevel}-${toLevel}.`);
 
-    // Breakdown (amounts)
+    // Amount breakdown
     const byResource = new Map();
     let grand = 0;
     for (const it of items) {
@@ -750,12 +786,13 @@
       byResource.set(it.resource, (byResource.get(it.resource) || 0) + it.amount);
     }
 
-    // Optional market value (coin)
+    // Market values
     const includeMarket = !!els.useMarket.checked;
     const preferredSource = els.marketSource.value;
     const priceType = els.priceType.value;
 
     const byResourceValue = new Map();
+    const byResourceUnit = new Map();
     let grandValue = null;
 
     if (includeMarket) {
@@ -767,11 +804,14 @@
         let gv = 0;
 
         for (const it of items) {
-          const unit = getItemPriceCoin(it.resource, priceType, marketData);
+          const unit = getItemPriceCoin(it.resource, priceType);
+          it.unitCoin = unit;
+
           if (unit == null) {
             it.valueCoin = null;
             continue;
           }
+
           const v = it.amount * unit;
           it.valueCoin = v;
 
@@ -779,10 +819,15 @@
           byResourceValue.set(it.resource, (byResourceValue.get(it.resource) || 0) + v);
         }
 
+        // compute implied per-resource unit (total value / total amount) where possible
+        for (const [res, totalAmt] of byResource.entries()) {
+          const totalVal = byResourceValue.get(res);
+          if (totalVal != null && totalAmt) byResourceUnit.set(res, totalVal / totalAmt);
+        }
+
         grandValue = gv;
 
       } catch (e) {
-        // Don’t break calculator, just show '-' values
         setStatus(`Market pricing unavailable: ${e.message || e}`);
         grandValue = null;
       }
@@ -803,16 +848,19 @@
     [...byResource.entries()]
       .sort((a,b) => b[1] - a[1])
       .forEach(([resource, total]) => {
+        const unit = includeMarket ? byResourceUnit.get(resource) : null;
         const val = includeMarket ? byResourceValue.get(resource) : null;
+
         const tr = document.createElement("tr");
         tr.innerHTML =
           `<td><span class="${resourceClass(resource)}">${resource}</span></td>
            <td class="right">${formatNumber(total)}</td>
+           <td class="right">${includeMarket ? (unit != null ? formatCoin(unit) : "-") : "-"}</td>
            <td class="right">${includeMarket ? (val != null ? formatCoin(val) : "-") : "-"}</td>`;
         els.resourceRows.appendChild(tr);
       });
 
-    // Line items
+    // Line items table
     els.lineRows.innerHTML = "";
     items.forEach((it) => {
       const tr = document.createElement("tr");
@@ -820,6 +868,7 @@
         `<td>${it.level}</td>
          <td><span class="${resourceClass(it.resource)}">${it.resource}</span></td>
          <td class="right">${formatNumber(it.amount)}</td>
+         <td class="right">${includeMarket ? (it.unitCoin != null ? formatCoin(it.unitCoin) : "-") : "-"}</td>
          <td class="right">${includeMarket ? (it.valueCoin != null ? formatCoin(it.valueCoin) : "-") : "-"}</td>`;
       els.lineRows.appendChild(tr);
     });
